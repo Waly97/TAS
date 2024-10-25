@@ -1,4 +1,3 @@
-
 type pterm = 
   Var of string
   | App of pterm * pterm
@@ -57,43 +56,47 @@ type pterm =
     | App (p1, p2) -> App (substitution x n p1, substitution x n p2) 
 
 
-  (*beta reducion*)
-  let rec beta_reduced (p:pterm): pterm =
+  let rec isValue(p:pterm) : bool =
     match p with
-      Var v -> Var v 
-      |Abs (x, body) -> Abs (x, beta_reduced body)
-      |App (Abs(x,body),arg) -> 
-        let r_arg = beta_reduced arg in
-        let r_body = substitution x r_arg body in
-        beta_reduced r_body
-      |App (p1,p2) -> 
-        let r1 =  beta_reduced p1 in 
-        let r2 = beta_reduced p2 in 
-        App(r1,r2)
+    Var _ -> true
+    | Abs(_,_) -> true
+    | N _ -> true
+    | App ( Var(x) , t' ) ->  isValue (t') 
+    | _ -> false 
+  
+  (*beta reducion*)
+  let rec beta_reduced (p:pterm) : pterm = 
+    match p with
+    | App (m, n) -> let m' = beta_reduced m in let n' = beta_reduced n in 
+      (match m' with
+        | Abs (vn, at) when isValue n' -> beta_reduced (substitution vn n' at)
+        | _ -> beta_reduced (App (m', n'))
+      )
+    | _ -> p
 
+  
 
-  (* let rec peut_se_reduire (t : pterm) : bool =
-    match t with
-    | Var _ -> false                       (* Une variable ne peut pas être réduite *)
-    | Abs (_, body) -> peut_se_reduire body (* Vérifie si le corps d'une abstraction peut être réduit *)
-    | App (Abs (_, _), _) -> true          (* Une application avec une abstraction en tête peut être réduite *)
-    | App (t1, t2) ->                      (* Vérifie si une des parties de l'application peut être réduite *)
-    peut_se_reduire t1 || peut_se_reduire t2 *)
 
   (*fonction de r´eduction Call-by-Value qui impl´emente la strat´egie LtR-CbV*)
   let rec ltr_cbv_step (t : pterm) : pterm option =
-    match t with 
-    Var x -> None
-    | Abs (x,t1) -> Some (Abs (x,t1))
-    | App (t1,t2) -> 
-        match ltr_cbv_step t1 with
-          Some  reduce_t1 -> Some (App (reduce_t1,t2))
-          |None -> 
-            match ltr_cbv_step t2 with
-              Some reduce_t2 -> Some (App (t1, reduce_t2))
-              | None -> match (t1,t2) with 
-                  (Abs (_,_),_)-> Some (beta_reduced t)
-                  |_ -> None
+    match t with
+    (* Beta reduction *)
+    | App (Abs (x, body), v) when isValue v ->
+      Some (substitution x v body)
+    | App (m, n) ->
+        (match ltr_cbv_step m with
+        (* M -> M' => M N -> M' N *)
+        | Some m' -> Some (App (m', n))
+        | None when (isValue m) = false ->None
+        | _  ->
+            (* Si la partie gauche est déjà une valeur, on essaie de réduire la partie droite *)
+            (
+            match ltr_cbv_step n with
+            | Some n' -> Some (App (m, n'))
+            | None -> None)
+          )
+    | _ -> None 
+    
   
   (*forme normale d'un pterm*)
   let rec ltr_cbv_norm (t : pterm) : pterm =
@@ -101,56 +104,52 @@ type pterm =
       | Some reduced_term -> ltr_cbv_norm reduced_term 
       | None -> t  
 
-  let rec sont_identiques (t1 : pterm) (t2 : pterm) : bool =
+  (* let rec sont_identiques (t1 : pterm) (t2 : pterm) : bool =
     match (t1, t2) with
       | (Var v1, Var v2) -> v1 = v2  (* Compare les variables *)
       | (Abs (x1, body1), Abs (x2, body2)) ->
             x1 = x2 && sont_identiques body1 body2  (* Compare les abstractions *)
       | (App (t11, t12), App (t21, t22)) ->
             sont_identiques t11 t21 && sont_identiques t12 t22  (* Compare les applications *)
-      | _ -> false  (* Les termes sont différents *)
+      | _ -> false  Les termes sont différents *)
 
-  let compteur : int ref = ref 5
-  let decremente () : unit = compteur := !compteur - 1;
+      let alphaequal t1 t2 =
+        let rec alpha_eq env t1 t2 =
+          match t1, t2 with
+          | Var x1, Var x2 ->
+              (try List.assoc x1 env = x2
+                with Not_found -> x1 = x2)
+          | Abs (x1, t1'), Abs (x2, t2') ->
+              let new_env = (x1, x2) :: env in
+              alpha_eq new_env t1' t2'
+          | App (t1a, t1b), App (t2a, t2b) ->
+              alpha_eq env t1a t2a && alpha_eq env t1b t2b
+          |  _-> false
+        in
+        alpha_eq [] t1 t2
+
+  
   exception Time_out
 
   (*forme normale d'un pterm*)
-  let rec ltr_cbv_norm_ameliorer (t : pterm) : pterm =
-    if !compteur = 0 then raise Time_out; 
-    match ltr_cbv_step t with
-    | Some reduced_term -> 
-      (* Décrémente le compteur après chaque réduction *)
-        decremente ();  
-        if sont_identiques reduced_term t then 
-          (* Continue la normalisation si le terme a changé *)
-          ltr_cbv_norm_ameliorer reduced_term  
-        else 
-          (* Retourne le terme réduit s'il a changé *)
-          reduced_term  
-    | None -> t 
+  let rec ltr_cbv_norm_ameliorer (t : pterm) (compteur : int) : pterm =
+    if compteur <= 0 then
+      raise Time_out  (* Lève une exception si le compteur atteint zéro *)
+    else
+      match ltr_cbv_step t with
+      | Some reduced_term -> 
+          if alphaequal reduced_term t then
+            (* Si le terme réduit est identique à l'original, on continue la normalisation *)
+            ltr_cbv_norm_ameliorer reduced_term (compteur - 1)
+          else
+            (* Si le terme a changé, on retourne la forme réduite *)
+            reduced_term
+      | None -> t  (* Si aucune réduction n'est possible, retourne le terme courant *)
+  
+
+    
 
 
                
 
-
-
   
-        
-  let () =
-  (* Création du terme : (\x -> \y -> x) 3 *)
-  let term = App (Abs ("x", Abs ("y", Var "x")), Var "3") in
-        
-  (* Affichage du terme avant la réduction *)
-  print_endline "Terme avant la réduction :";
-  print_endline(print_term term);
-        
-  (* Réduction bêta *)
-  let evaluated_term = beta_reduced term in
-        
-  (* Affichage du terme après la réduction *)
-  print_endline "Terme après la réduction :";
-  print_endline(print_term evaluated_term);
-
-print_endline "je marche";
-
-

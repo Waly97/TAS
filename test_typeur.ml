@@ -1,5 +1,3 @@
-(* test_unificateur.ml *)
-
 open OUnit2
 open Printf
 open Ast
@@ -22,50 +20,46 @@ let unification_substitution_test =
   let eqs = [(TVar "T1", Arr (TVar "T2", TVar "T3")); (Arr (TVar "T2", TVar "T3"), TVar "T4")] in
   eqs
 
-(* Test unification échouée corrigé *)
-let unification_succes_test=
+(* Test d'unification réussie *)
+let unification_succes_test =
   let eqs = [
     (TVar "T1", TVar "T2"); 
     (Arr (TVar "T1", TVar "T2"), Arr (TVar "T3", TVar "T4"))
   ] in
   eqs
 
-(* Test d'unification avec échec (sans utiliser Nat) *)
+(* Test d'unification échouée (sans utiliser Nat) *)
 let unification_echec_test =
   let eqs = [
-    (Nat , Arr (TVar "T1", TVar "T2"));  (* T1 est une variable, mais doit unifier avec une fonction *)
-    (Arr (TVar "T3", Nat), TVar "T1")   (* Conflit car T1 doit être un type fonctionnel mais ici, il est utilisé avec des types concrets *)
+    (Nat, Arr (TVar "T1", TVar "T2"));  (* T1 est une variable, mais doit unifier avec une fonction *)
+    (Arr (TVar "T3", Nat), TVar "T1")   (* Conflit car T1 doit être un type fonctionnel, mais ici, il est utilisé avec des types concrets *)
   ] in
   eqs
 
 let abs_test =
   let env = [] in
   let term = Abs ("x", Var "x") in
-  let expected_type = print_term term in
-  (env, term, expected_type)
+  (env, term)
 
 let app_test =
   let env = [("f", Arr (TVar "T1", TVar "T2")); ("x", TVar "T1")] in
   let term = App (Var "f", Var "x") in
-  let expected_type = print_term term in
-  (env, term, expected_type)
+  (env, term)
 
 let nested_abs_test =
   let env = [] in
   let term = Abs ("x", Abs ("y", App (Var "x", Var "y"))) in
-  let expected_type = print_term term in
-  (env, term, expected_type)
-  
+  (env, term)
 
 (* Tests d'unification *)
-let tests = "Unification Tests" >::: [
+let tests = "Tests d'unification" >::: [
 
   (* Test d'unification simple *)
   "unification simple" >:: (fun _ ->
     let eqs = unification_simple_test in
     match solve_system eqs [] with
     | Some _ -> ()
-    | None -> assert_failure "Expected successful unification"
+    | None -> assert_failure "Unification attendue réussie, mais a échoué"
   );
 
   (* Test d'unification avec substitution *)
@@ -79,7 +73,7 @@ let tests = "Unification Tests" >::: [
         let expected = List.assoc v expected_substitutions in
         test_type_eq t expected
       ) substitutions
-    | None -> assert_failure "Expected successful unification"
+    | None -> assert_failure "Unification attendue réussie, mais a échoué"
   );
 
   (* Test d'unification réussie *)
@@ -87,25 +81,40 @@ let tests = "Unification Tests" >::: [
     let eqs = unification_succes_test in
     match solve_system eqs [] with
     | Some _ -> ()  (* Succès attendu, car l'unification doit réussir *)
-    | None -> assert_failure "Expected successful unification"
+    | None -> assert_failure "Unification attendue réussie, mais a échoué"
   );
 
+  (* Test d'inférence pour une abstraction *)
   "Abstraction" >:: (fun _ ->
-    let env, term, expected = abs_test in
+    let env, term = abs_test in
     let result = inference env term in
-    assert_equal ("le terme " ^ expected ^ " est bien typé") result
+    match result with
+    | Some inferred_type ->
+        let expected_message = Printf.sprintf "le terme %s est bien typé" (print_term term) in
+        assert_equal expected_message (Some (print_type inferred_type))
+    | None -> assert_failure "Inférence attendue réussie, mais a échoué"
   );
 
+  (* Test d'inférence pour une application *)
   "Application" >:: (fun _ ->
-    let env, term, expected = app_test in
+    let env, term = app_test in
     let result = inference env term in
-    assert_equal ("le terme " ^ expected ^ " est bien typé") result
+    match result with
+    | Some inferred_type ->
+        let expected_message = Printf.sprintf "le terme %s est bien typé" (print_term term) in
+        assert_equal expected_message (Some (print_type inferred_type))
+    | None -> assert_failure "Inférence attendue réussie, mais a échoué"
   );
 
+  (* Test d'inférence pour une abstraction imbriquée *)
   "Nested Abstraction" >:: (fun _ ->
-    let env, term, expected = nested_abs_test in
+    let env, term = nested_abs_test in
     let result = inference env term in
-    assert_equal ("le terme " ^ expected ^ " est bien typé") result
+    match result with
+    | Some inferred_type ->
+        let expected_message = Printf.sprintf "le terme %s est bien typé" (print_term term) in
+        assert_equal expected_message (Some (print_type inferred_type))
+    | None -> assert_failure "Inférence attendue réussie, mais a échoué"
   );
 ]
 
